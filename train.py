@@ -17,6 +17,7 @@ def unnormalize_torch(vals, min_val, max_val):
 
 
 def qerror_loss(preds, targets, min_val, max_val):
+    # TODO: need to align with naru and support target=0
     qerror = []
     preds = unnormalize_torch(preds, min_val, max_val)
     targets = unnormalize_torch(targets, min_val, max_val)
@@ -119,6 +120,8 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
 
         print("Epoch {}, loss: {}".format(epoch, loss_total / len(train_data_loader)))
 
+        # TODO: save model & only keep the best one on validation set
+
     # Get final training and validation set predictions
     preds_train, t_total = predict(model, train_data_loader, cuda)
     print("Prediction time per training sample: {}".format(t_total / len(labels_train) * 1000))
@@ -169,6 +172,7 @@ def train_and_predict(workload_name, num_queries, num_epochs, batch_size, hid_un
     print("\nQ-Error " + workload_name + ":")
     print_qerror(preds_test_unnorm, label)
 
+    # TODO: align output with naru
     # Write predictions
     file_name = "results/predictions_" + workload_name + ".csv"
     os.makedirs(os.path.dirname(file_name), exist_ok=True)

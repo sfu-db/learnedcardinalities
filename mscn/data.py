@@ -12,6 +12,7 @@ def load_data(file_name, num_materialized_samples):
     samples = []
     label = []
 
+    # TODO: need to align the input format
     # Load queries
     with open(file_name + ".csv", 'rU') as f:
         data_raw = list(list(rec) for rec in csv.reader(f, delimiter='#'))
@@ -19,6 +20,7 @@ def load_data(file_name, num_materialized_samples):
             tables.append(row[0].split(','))
             joins.append(row[1].split(','))
             predicates.append(row[2].split(','))
+            # TODO: need to support 0 scenario
             if int(row[3]) < 1:
                 print("Queries must have non-zero cardinalities")
                 exit(1)
@@ -26,6 +28,7 @@ def load_data(file_name, num_materialized_samples):
     print("Loaded queries")
 
     # Load bitmaps
+    # TODO: need to make this stage online (fair to compare with others)
     num_bytes_per_bitmap = int((num_materialized_samples + 7) >> 3)
     with open(file_name + ".bitmaps", 'rb') as f:
         for i in range(len(tables)):
@@ -43,7 +46,11 @@ def load_data(file_name, num_materialized_samples):
                     exit(1)
                 bitmaps[j] = np.unpackbits(np.frombuffer(bitmap_bytes, dtype=np.uint8))
             samples.append(bitmaps)
-    print("Loaded bitmaps")
+    print("Loaded bitmaps", len(samples))
+    #  for i in range(len(samples)):
+    #      assert len(tables[i]) == len(samples[i])
+    #      print(i, len(tables[i]), len(samples[i]))
+    #  exit(1)
 
     # Split predicates
     predicates = [list(chunks(d, 3)) for d in predicates]
@@ -55,6 +62,7 @@ def load_and_encode_train_data(num_queries, num_materialized_samples):
     file_name_queries = "data/train"
     file_name_column_min_max_vals = "data/column_min_max_vals.csv"
 
+    # TODO: for single table selectivity estimation, no need joins and tables
     joins, predicates, tables, samples, label = load_data(file_name_queries, num_materialized_samples)
 
     # Get column name dict
@@ -74,6 +82,7 @@ def load_and_encode_train_data(num_queries, num_materialized_samples):
     join2vec, idx2join = get_set_encoding(join_set)
 
     # Get min and max values for each column
+    # TODO: read in a more simple file or hard code here temporarily
     with open(file_name_column_min_max_vals, 'rU') as f:
         data_raw = list(list(rec) for rec in csv.reader(f, delimiter=','))
         column_min_max_vals = {}
@@ -87,7 +96,16 @@ def load_and_encode_train_data(num_queries, num_materialized_samples):
     predicates_enc, joins_enc = encode_data(predicates, joins, column_min_max_vals, column2vec, op2vec, join2vec)
     label_norm, min_val, max_val = normalize_labels(label)
 
+    #  for i in range(5):
+    #      print(i, len(samples_enc[i]))
+    #      print('predicates', len(predicates_enc[i]), predicates_enc[i])
+    #      print('joins', len(joins_enc[i]), joins_enc[i])
+    #      print(label_norm[i])
+    #      print('================')
+    #  exit(1)
+
     # Split in training and validation samples
+    # TODO: random split, align with chi
     num_train = int(num_queries * 0.9)
     num_test = num_queries - num_train
 
@@ -120,6 +138,7 @@ def make_dataset(samples, predicates, joins, labels, max_num_joins, max_num_pred
     sample_tensors = []
     for sample in samples:
         sample_tensor = np.vstack(sample)
+        # wangxy: # joins + 1 >= # tables
         num_pad = max_num_joins + 1 - sample_tensor.shape[0]
         sample_mask = np.ones_like(sample_tensor).mean(1, keepdims=True)
         sample_tensor = np.pad(sample_tensor, ((0, num_pad), (0, 0)), 'constant')
@@ -130,6 +149,8 @@ def make_dataset(samples, predicates, joins, labels, max_num_joins, max_num_pred
     sample_tensors = torch.FloatTensor(sample_tensors)
     sample_masks = np.vstack(sample_masks)
     sample_masks = torch.FloatTensor(sample_masks)
+    print(sample_tensors.shape, sample_masks.shape)
+    exit(1)
 
     predicate_masks = []
     predicate_tensors = []

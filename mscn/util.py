@@ -1,5 +1,19 @@
 import numpy as np
 
+def in_between(data, val):
+    assert len(val) == 2
+    lrange, rrange = val
+    return (data >= lrange) & (data <= rrange)
+
+OPS = {
+    '>': np.greater,
+    '<': np.less,
+    '>=': np.greater_equal,
+    '<=': np.less_equal,
+    '=': np.equal,
+    '[]': in_between
+}
+
 
 # Helper functions for data processing
 
@@ -91,7 +105,8 @@ def normalize_data(val, column_name, column_min_max_vals):
 
 
 def normalize_labels(labels, min_val=None, max_val=None):
-    labels = np.array([np.log(float(l)) for l in labels])
+    # +1 to deal with 0 scenario
+    labels = np.array([np.log(float(l+1)) for l in labels])
     if min_val is None:
         min_val = labels.min()
         print("min log(label): {}".format(min_val))
@@ -108,7 +123,8 @@ def normalize_labels(labels, min_val=None, max_val=None):
 def unnormalize_labels(labels_norm, min_val, max_val):
     labels_norm = np.array(labels_norm, dtype=np.float32)
     labels = (labels_norm * (max_val - min_val)) + min_val
-    return np.array(np.round(np.exp(labels)), dtype=np.int64)
+    # -1 to deal with 0 scenario, need to restrict to >= 0
+    return np.array(np.maximum(np.round(np.exp(labels) - 1), 0), dtype=np.int64)
 
 
 def encode_samples(tables, samples, table2vec):
@@ -125,33 +141,33 @@ def encode_samples(tables, samples, table2vec):
             samples_enc[i].append(sample_vec)
     return samples_enc
 
+def get_sample_bitmap(sample, queries):
+    bitmaps = []
+    for i, query in enumerate(queries):
+        bitmaps.append(list())
+        columns, operators, values = query
+        bitmap = np.array([1] * sample.shape[0])
+        for c, o, v in zip(columns, operators, values):
+            bitmap *= OPS[o](sample[:, c], v)
+        bitmaps[i].append(bitmap)
+    return bitmaps
 
-def encode_data(predicates, joins, column_min_max_vals, column2vec, op2vec, join2vec):
+def encode_data(queries, min_max_dict, column2vec, op2vec):
     predicates_enc = []
-    joins_enc = []
-    for i, query in enumerate(predicates):
+    for i, query in enumerate(queries):
         predicates_enc.append(list())
-        joins_enc.append(list())
-        for predicate in query:
-            if len(predicate) == 3:
-                # Proper predicate
-                column = predicate[0]
-                operator = predicate[1]
-                val = predicate[2]
-                norm_val = normalize_data(val, column, column_min_max_vals)
-
-                pred_vec = []
-                pred_vec.append(column2vec[column])
-                pred_vec.append(op2vec[operator])
-                pred_vec.append(norm_val)
-                pred_vec = np.hstack(pred_vec)
-            else:
-                pred_vec = np.zeros((len(column2vec) + len(op2vec) + 1))
-
+        columns, operators, values = query
+        for c, o, v in zip(columns, operators, values):
+            norm_val = normalize_data(v, c, min_max_dict)
+            pred_vec = []
+            pred_vec.append(column2vec[c])
+            pred_vec.append(op2vec[o])
+            pred_vec.append(norm_val)
+            pred_vec = np.hstack(pred_vec)
             predicates_enc[i].append(pred_vec)
 
-        for predicate in joins[i]:
-            # Join instruction
-            join_vec = join2vec[predicate]
-            joins_enc[i].append(join_vec)
-    return predicates_enc, joins_enc
+        # for no predicate scenario
+        if len(predicates_enc[i]) == 0:
+            predicates_enc[i].append(np.zeros((len(column2vec) + len(op2vec) + 1)))
+
+    return predicates_enc

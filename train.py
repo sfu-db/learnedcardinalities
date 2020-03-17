@@ -14,28 +14,24 @@ from mscn.datasets import LoadForest
 from mscn.queries import LoadForestQueries
 
 def error_metric(est_card, card):
-    # HACK: the error should not less than 1.1 when est_card != card and one of them is 0
-    # TODO: may be add 1 on both est_card and card?
-    if card == 0 and est_card != 0:
-        return max(1.1, est_card)
-    if card != 0 and est_card == 0:
-        return max(1.1, card)
-    if card == 0 and est_card == 0:
-        return 1.0
-    return max(est_card / card, card / est_card)
+    # both + 1 in case est_card or card being 0
+    if est_card > card:
+        return (est_card + 1) / (card + 1)
+    else:
+        return (card + 1) / (est_card + 1)
 
 def unnormalize_torch(vals, min_val, max_val):
     vals = (vals * (max_val - min_val)) + min_val
     return torch.exp(vals) - 1
 
-def qerror_loss(preds, targets, min_val, max_val, collapse=True):
+def qerror_loss(preds, targets, min_val, max_val):
     qerror = []
     preds = unnormalize_torch(preds, min_val, max_val)
     targets = unnormalize_torch(targets, min_val, max_val)
 
     for i in range(len(targets)):
         qerror.append(error_metric(preds[i], targets[i]))
-    return torch.mean(torch.cat(qerror)) if collapse else qerror
+    return torch.mean(torch.cat(qerror))
 
 def print_qerror(preds_unnorm, labels_unnorm):
     qerror = []
@@ -70,8 +66,8 @@ def predict(model, data_loader, cuda):
         outputs = model(samples, predicates, sample_masks, predicate_masks)
         t_total += time.time() - t
 
-        for i in range(outputs.data.shape[0]):
-            preds.append(outputs.data[i])
+        for i in range(outputs.shape[0]):
+            preds.append(outputs[i].cpu().item())
 
     return preds, t_total
 
@@ -119,7 +115,7 @@ def train(query, num_samples, num_epochs, batch_size, hid_units, cuda, seed):
 
             optimizer.zero_grad()
             outputs = model(samples, predicates, sample_masks, predicate_masks)
-            loss = qerror_loss(outputs, targets.float(), min_val, max_val)
+            loss = qerror_loss(outputs, targets.float().reshape(-1, 1), min_val, max_val)
             loss_total += loss.item()
             loss.backward()
             optimizer.step()
@@ -202,7 +198,6 @@ def test(query, num_samples, model_name, batch_size, hid_units, cuda, seed):
     print("\nQ-Error:")
     test_error = print_qerror(preds_test_unnorm, labels)
 
-    # TODO: align output with naru
     # Write predictions
     file_name = os.path.join('results', '{}_{}.csv'.format(query, model_name))
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
